@@ -1,14 +1,12 @@
 import re
 import stanza
+import csv
+import pandas as pd
 import torch
 import torch.nn.functional as F
-import nltk
-from nltk.corpus import stopwords
-from string import punctuation
 from textblob import TextBlob, Word
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-nltk.download('stopwords')
 stanza.download('en')
 nlp = stanza.Pipeline('en', processort = 'tokenize')
 model_name = "yangheng/deberta-v3-base-absa-v1.1"
@@ -16,18 +14,13 @@ tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForSequenceClassification.from_pretrained(model_name)
 
 text = """
-I came here in 2022 and the hotel was excellent! Great room service, restaurant, and extremely warm thermal pool!
-I returned now in April 2024 and it doesn't even look like the same place! The pools seem heated, I stayed for 6 days and during those 6 days I questioned the water temperature and no one knew how to answer me, it got to the point that on the last day the water was freezing! Room service stopped a few days ago, towels with holes, sheets with old stains. In the restaurant, the quality of the breakfast frustrated me, in addition to the other meals, the waiters seemed lost and unprepared.
-There is a lack of maintenance in the hotel as a whole, a huge loss, as I came here for the thermal water, good food and good rooms, today we don't have any of that anymore.
+I have never experienced such dissatisfaction with the lack of empathy from a person responsible for a reception at a hotel of the magnitude of Wyndham where I was accommodated in a room that did not match the reservation made without any ability to adequately accommodate the number of people described in the reservation. I was sold one thing and offered another and still had problems and at no point was the hotel willing to resolve or try to resolve my problem, on the contrary the attendant was harsh with me and so I could try to resolve it myself, I made another reservation to accommodate everyone properly. And amazingly, I asked to at least move my check-in forward a few hours and was denied by the same employee responsible for the reception. Zero empathy and lack of care for a satisfied customer Terrible experience.
 """
 
 
-
-sentences = []
 doc = nlp(text)
 
-
-def nltk_sentiment(aspect):
+def nltk_sentiment(text, aspect):
     sentiment_aspect = {}
     inputs = tokenizer(text, aspect, return_tensors="pt")
 
@@ -41,30 +34,9 @@ def nltk_sentiment(aspect):
 
 
 
-
-
-def clean_sentence(sentence):
-    sentence = re.sub(r"(?:\@|://)\S+|\n+", "", sentence.lower())
-    sent = TextBlob(sentence)
-    sent.correct()
-    clean = ""
-    for sentence in sent.sentences:    
-        words = sentence.words
-        words = [''.join(c for c in s if c not in punctuation) for s in words]
-        words = [s for s in words if s]
-        clean += " ".join(words)
-        clean += ". "
-    return clean
-
-
-for sentence in doc.sentences:
-    sentences.append(' '.join([token.text for token in sentence.tokens]))
-
-result = [clean_sentence(sentence) for sentence in sentences]
-comments = TextBlob(' '.join(result))
+comments = TextBlob(text)
 cleaned = []
 
-# Получаем список всех существительных фраз и удаляем те, которые с ошибками.
 for phrase in comments.noun_phrases:
     count = 0
     for word in phrase.split():
@@ -74,56 +46,16 @@ for phrase in comments.noun_phrases:
         cleaned.append(phrase)
 
 
-for phrase in cleaned:    
-    match = []
-    temp = []
-    word_match = []
-    for word in phrase.split():
-        word_match = [p for p in cleaned if re.search(word, p) and p not in word_match]
-        if len(word_match) <= len(cleaned)*0.3:
-            temp.append(word)
-            match += word_match
-            
-    phrase = ' '.join(temp)
 
-    if len(match) >= len(cleaned)*0.1:
-        for feature in match:
-            if feature not in cleaned:
-                continue
-            cleaned.remove(feature)
-        cleaned.append(max(match, key=len))
-        
-
-feature_count = {}
-for phrase in cleaned:
-    count = 0
-    for word in phrase.split():
-        if word not in stopwords.words('english'):
-            count += comments.words.count(word)
-    feature_count[phrase] = count
-
-counts = list(feature_count.values())
-features = list(feature_count.keys())
-threshold = len(comments.noun_phrases)/100
-
-frequent_features = []
-
-for feature, count in feature_count.items():
-    if count >= threshold:
-        frequent_features.append(feature)
-
-
-
-nltk_results = [nltk_sentiment(row) for row in frequent_features]
+nltk_results = [nltk_sentiment(text, row) for row in cleaned]
 
 absa_list = {}
-for f in frequent_features:
+for f in cleaned:
     absa_list[f] = list()
-    for comment in result:
-        blob = TextBlob(comment)
+    for comment in comments.sentences:
+        blob = TextBlob(str(comment))
         for sentence in blob.sentences:
-            q = '|'.join(f.split())
-            if re.search(r'\w*(' + str(q) + ')\w*', str(sentence)):
+            if re.search(str(f).lower(), str(sentence).lower()):
                 absa_list[f].append(sentence)
 
 
