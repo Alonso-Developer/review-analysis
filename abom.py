@@ -12,13 +12,8 @@ nlp = stanza.Pipeline('en', processort = 'tokenize')
 model_name = "yangheng/deberta-v3-base-absa-v1.1"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForSequenceClassification.from_pretrained(model_name)
+dataset = pd.read_csv('./London_reviews.csv')
 
-text = """
-I have never experienced such dissatisfaction with the lack of empathy from a person responsible for a reception at a hotel of the magnitude of Wyndham where I was accommodated in a room that did not match the reservation made without any ability to adequately accommodate the number of people described in the reservation. I was sold one thing and offered another and still had problems and at no point was the hotel willing to resolve or try to resolve my problem, on the contrary the attendant was harsh with me and so I could try to resolve it myself, I made another reservation to accommodate everyone properly. And amazingly, I asked to at least move my check-in forward a few hours and was denied by the same employee responsible for the reception. Zero empathy and lack of care for a satisfied customer Terrible experience.
-"""
-
-
-doc = nlp(text)
 
 def nltk_sentiment(text, aspect):
     sentiment_aspect = {}
@@ -34,42 +29,48 @@ def nltk_sentiment(text, aspect):
 
 
 
-comments = TextBlob(text)
-cleaned = []
+def process_review(hotel_name, review):
+    text = review
+    doc = nlp(text)
 
-for phrase in comments.noun_phrases:
-    count = 0
-    for word in phrase.split():
-        if len(word) <= 2 or (not Word(word).definitions):
-            count += 1
-    if count < len(phrase.split())*0.4:
-        cleaned.append(phrase)
+    comments = TextBlob(text)
+    cleaned = []
 
-
-
-nltk_results = [nltk_sentiment(text, row) for row in cleaned]
-
-absa_list = {}
-for f in cleaned:
-    absa_list[f] = list()
-    for comment in comments.sentences:
-        blob = TextBlob(str(comment))
-        for sentence in blob.sentences:
-            if re.search(str(f).lower(), str(sentence).lower()):
-                absa_list[f].append(sentence)
+    for phrase in comments.noun_phrases:
+        count = 0
+        for word in phrase.split():
+            if len(word) <= 2 or (not Word(word).definitions):
+                count += 1
+        if count < len(phrase.split())*0.4:
+            cleaned.append(phrase)
 
 
-print("[ REVIEW ]")
-print(text)
 
-for key in nltk_results:
-    dict_key = list(key.keys())[0]
-    dict_res = key[dict_key]
-    print(dict_key, dict_res[0], dict_res[1])
-print("\nAspect Specific sentences:\n")
+    nltk_results = [nltk_sentiment(text, row) for row in cleaned]
 
-for i in absa_list:
-    print(i)
-    for j in absa_list[i]:
-        print(f"\t- {str(j)}")
-    print()
+    absa_list = {}
+    for f in cleaned:
+        absa_list[f] = []
+        sentences = [comment for comment in comments.sentences if re.search(str(f).lower(), str(comment).lower())]
+        absa_list[f].extend(sentences)
+
+    try:
+        with open(f'./results/{hotel_name}_semantic.txt', 'a') as file:
+            for key in nltk_results:
+                dict_key = list(key.keys())[0]
+                dict_res = key[dict_key]
+                file.write(f"{dict_key} {dict_res[0]} {dict_res[1]}\n")
+        
+        with open(f'./results/{hotel_name}.txt', 'a') as file:
+            for i in absa_list:
+                file.write(i + '\n')
+                for j in absa_list[i]:
+                    file.write(f"\t- {str(j)}\n")
+                file.write('\n')
+    except Exception as e:
+        if isinstance(e, KeyboardInterrupt):
+            exit()
+        print(e)
+
+dataset.apply(lambda x: process_review(x['restaurant_name'], x['review_full']), axis = 1)
+
